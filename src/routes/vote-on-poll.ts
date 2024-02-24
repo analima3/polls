@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { redis } from "../lib/redis";
+import { voting } from "../utils/vote-pub-sub";
 
 export async function voteOnPoll(app: FastifyInstance) {
   app.post("/poll/:pollId/vote", async (request, reply) => {
@@ -39,7 +40,16 @@ export async function voteOnPoll(app: FastifyInstance) {
           },
         });
 
-        await redis.zincrby(pollId, -1, userPreviewsVoteOnPoll.pollOptionId);
+        const votes = await redis.zincrby(
+          pollId,
+          -1,
+          userPreviewsVoteOnPoll.pollOptionId
+        );
+
+        voting.publish(pollId, {
+          pollOptionId: userPreviewsVoteOnPoll.pollOptionId,
+          votes: Number(votes),
+        });
       } else if (userPreviewsVoteOnPoll) {
         return reply
           .status(400)
@@ -66,7 +76,9 @@ export async function voteOnPoll(app: FastifyInstance) {
       },
     });
 
-    await redis.zincrby(pollId, 1, pollOptionId);
+    const votes = await redis.zincrby(pollId, 1, pollOptionId);
+
+    voting.publish(pollId, { pollOptionId, votes: Number(votes) });
 
     return reply.status(201).send();
   });
